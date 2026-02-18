@@ -1,9 +1,8 @@
 """Example code for planner-worker agent collaboration with multiple tools."""
 
-# this is a test
-
 import asyncio
 from typing import Any, AsyncGenerator
+
 import agents
 import gradio as gr
 from dotenv import load_dotenv
@@ -23,6 +22,9 @@ from src.utils.tools.gemini_grounding import (
     GeminiGroundingWithGoogleSearch,
     ModelSettings,
 )
+
+import pandas as pd
+import sqlite3
 
 
 async def _main(
@@ -48,7 +50,7 @@ async def _main(
     ):
         # Run the agent in streaming mode to get and display intermediate outputs
         result_stream = agents.Runner.run_streamed(
-            main_agent,
+            eda_agent,
             input=query,
             session=session,
             max_turns=30,  # Increase max turns to support more complex queries
@@ -90,17 +92,93 @@ if __name__ == "__main__":
     kb_agent = agents.Agent(
         name="KnowledgeBaseAgent",
         instructions="""
-            You are an agent specialized in searching a knowledge base.
+            You are an agent specialized in searching a product knowledge base.
             You will receive a single search query as input.
-            Use the 'search_knowledgebase' tool to perform a search, then return a
-            JSON object with:
-            - 'summary': a concise synthesis of the retrieved information in your own words
-            - 'sources': a list of citations with {type: "kb", title: "...", section: "..."}
-            - 'no_results': true/false
-
-            If the tool returns no matches, set "no_results": true and keep "sources" empty.
+            Use the search_knowledgebase tool to perform the search.
+            Search specifically within the product_description column to identify products that match the query.
+            Return the results as:
+            A LIST of objects containing in the order it appears in the dataset:
+                - product_id
+                - product_description
+            After the list, return a separate string stating:
+                - "Total count: X"
+            where X is the number of matching product_ids.
+            Requirements:
+                -Return all matching products.
+                -If no matches are found, return an empty list: []
+                -Do not fabricate or infer information.
+                -Do not return raw search results.
+                -Do not include long quotations.
+                -Only return structured, relevant results.
+            If the tool returns no matches, return an empty LIST.
             Do NOT make up information. Do NOT return raw search results or long quotes.
         """,
+        # instructions="""
+        #     You are an agent specialized in searching a knowledge base.
+        #     You will receive a single search query as input.
+        #     Use the 'search_knowledgebase' tool to perform a search.
+        #     Use the product_description column to find products that match the query.
+        #     Then return the respective product_ids and product_decription as a LIST.
+        #     Return all of the product_ids from product_description that match.
+        #     Also return the final count of product_ids as a seperate string in the end.
+        #     If the tool returns no matches, return an empty LIST.
+        #     Do NOT make up information. Do NOT return raw search results or long quotes.
+        # """,
+
+            # LIST of product_ids that has a product_description that match the query.
+
+        tools=[
+            agents.function_tool(client_manager.knowledgebase.search_knowledgebase),
+        ],
+        # a faster, smaller model for quick searches
+        model=agents.OpenAIChatCompletionsModel(
+            model=worker_model, openai_client=client_manager.openai_client
+        ),
+    )
+
+    
+    # 2. Establish a SQLite connection
+    database = "transactions.sqlite"
+    conn = sqlite3.connect(database)
+    transactions_data = pd.read_csv("mock_transactions.csv", encoding = "latin1")
+    
+
+    # 3. Save data into the SQLite database with the table name 'Users'
+    transactions_data.to_sql(name='transactions_data', con=conn, if_exists='replace')
+
+    # EDA Agent: handles long context efficiently
+    eda_agent = agents.Agent(
+        name="EDAAgent",
+        instructions="""
+            You are an expert in converting English questions to SQL query!
+            The SQL database has the name transactions_data and has the following columns 
+            - transaction_id,product_id,product_description,sales_quantity,transaction_date,unit_price,customer_id,banner_name,sales_amount,store_id
+            
+            For example,
+            Example 1 - How many entries of records are present?, 
+            the SQL command will be something like this SELECT COUNT(*) FROM transactions_data ;
+            
+            Example 2 - Can you pull all the transactions for S/4 PINK FLOWER CANDLES IN BOWL? 
+            the SQL command will be something like this SELECT * FROM transactions_data 
+            where product_description="S/4 PINK FLOWER CANDLES IN BOWL"; 
+            
+            also the sql code should not have ``` 
+            in beginning or end and sql word in output
+        """,
+        # instructions="""
+        #     You are an agent specialized in searching a knowledge base.
+        #     You will receive a single search query as input.
+        #     Use the 'search_knowledgebase' tool to perform a search.
+        #     Use the product_description column to find products that match the query.
+        #     Then return the respective product_ids and product_decription as a LIST.
+        #     Return all of the product_ids from product_description that match.
+        #     Also return the final count of product_ids as a seperate string in the end.
+        #     If the tool returns no matches, return an empty LIST.
+        #     Do NOT make up information. Do NOT return raw search results or long quotes.
+        # """,
+
+            # LIST of product_ids that has a product_description that match the query.
+
         tools=[
             agents.function_tool(client_manager.knowledgebase.search_knowledgebase),
         ],
@@ -196,7 +274,10 @@ if __name__ == "__main__":
                 "6) the societal impacts of modern AI"
             ],
             [
-                "Compare the box office performance of 'Oppenheimer' with the third Avatar movie"
+                "Get a list of ALL product codes which has candle in its description"
+            ],
+            [
+                "Give us a count of all transactions present"
             ],
         ],
         title="2.2.3: Multi-Agent Orchestrator-worker for Retrieval-Augmented Generation with Multiple Tools",
