@@ -1,9 +1,8 @@
 """Example code for planner-worker agent collaboration with multiple tools."""
 
-# this is a test
-
 import asyncio
 from typing import Any, AsyncGenerator
+
 import agents
 import gradio as gr
 from dotenv import load_dotenv
@@ -24,6 +23,8 @@ from src.utils.tools.gemini_grounding import (
     ModelSettings,
 )
 
+import pandas as pd
+import sqlite3
 
 async def _main(
     query: str, history: list[ChatMessage], session_state: dict[str, Any]
@@ -48,7 +49,7 @@ async def _main(
     ):
         # Run the agent in streaming mode to get and display intermediate outputs
         result_stream = agents.Runner.run_streamed(
-            main_agent,
+            EDA_Agent,
             input=query,
             session=session,
             max_turns=30,  # Increase max turns to support more complex queries
@@ -90,17 +91,174 @@ if __name__ == "__main__":
     kb_agent = agents.Agent(
         name="KnowledgeBaseAgent",
         instructions="""
-            You are an agent specialized in searching a knowledge base.
+            You are an agent specialized in searching a product knowledge base.
             You will receive a single search query as input.
-            Use the 'search_knowledgebase' tool to perform a search, then return a
-            JSON object with:
-            - 'summary': a concise synthesis of the retrieved information in your own words
-            - 'sources': a list of citations with {type: "kb", title: "...", section: "..."}
-            - 'no_results': true/false
-
-            If the tool returns no matches, set "no_results": true and keep "sources" empty.
+            Use the search_knowledgebase tool to perform the search.
+            Search specifically within the product_description column to identify products that match the query.
+            Return the results as:
+            A LIST of objects containing in the order it appears in the dataset:
+                - product_id
+                - product_description
+            After the list, return a separate string stating:
+                - "Total count: X"
+            where X is the number of matching product_ids.
+            Requirements:
+                -Return all matching products.
+                -If no matches are found, return an empty list: []
+                -Do not fabricate or infer information.
+                -Do not return raw search results.
+                -Do not include long quotations.
+                -Only return structured, relevant results.
+            If the tool returns no matches, return an empty LIST.
             Do NOT make up information. Do NOT return raw search results or long quotes.
         """,
+        # instructions="""
+        #     You are an agent specialized in searching a knowledge base.
+        #     You will receive a single search query as input.
+        #     Use the 'search_knowledgebase' tool to perform a search.
+        #     Use the product_description column to find products that match the query.
+        #     Then return the respective product_ids and product_decription as a LIST.
+        #     Return all of the product_ids from product_description that match.
+        #     Also return the final count of product_ids as a seperate string in the end.
+        #     If the tool returns no matches, return an empty LIST.
+        #     Do NOT make up information. Do NOT return raw search results or long quotes.
+        # """,
+
+            # LIST of product_ids that has a product_description that match the query.
+
+        tools=[
+            agents.function_tool(client_manager.knowledgebase.search_knowledgebase),
+        ],
+        # a faster, smaller model for quick searches
+        model=agents.OpenAIChatCompletionsModel(
+            model=worker_model, openai_client=client_manager.openai_client
+        ),
+    )
+
+
+    transactions_data = pd.read_csv("/home/coder/agent-bootcamp/src/utils/mock_transactions.csv")
+    # 2. Establish a SQLite connection
+    database = "transactions_data"
+    conn = sqlite3.connect(database)
+    # 3. Save data into the SQLite database with the table name 'Users'
+    transactions_data.to_sql(name='transactions_data', con=conn, if_exists='replace')
+
+
+    calendar_data = pd.read_csv("/home/coder/agent-bootcamp/src/utils/mock_calendar.csv")
+    # 2. Establish a SQLite connection
+    database = "calendar_data"
+    conn = sqlite3.connect(database)
+    # 3. Save data into the SQLite database with the table name 'Users'
+    calendar_data.to_sql(name='calendar_data', con=conn, if_exists='replace')
+
+
+    products_data = pd.read_csv("/home/coder/agent-bootcamp/src/utils/mock_products.csv")
+    # 2. Establish a SQLite connection
+    database = "products_data"
+    conn = sqlite3.connect(database)
+    # 3. Save data into the SQLite database with the table name 'Users'
+    products_data.to_sql(name='products_data', con=conn, if_exists='replace')
+
+
+    segments_data = pd.read_csv("/home/coder/agent-bootcamp/src/utils/mock_segments.csv")
+    # 2. Establish a SQLite connection
+    database = "segments_data"
+    conn = sqlite3.connect(database)
+    # 3. Save data into the SQLite database with the table name 'Users'
+    segments_data.to_sql(name='segments_data', con=conn, if_exists='replace')
+
+
+    stores_data = pd.read_csv("/home/coder/agent-bootcamp/src/utils/mock_stores.csv")
+    # 2. Establish a SQLite connection
+    database = "stores_data"
+    conn = sqlite3.connect(database)
+    # 3. Save data into the SQLite database with the table name 'Users'
+    stores_data.to_sql(name='stores_data', con=conn, if_exists='replace')
+
+
+    # EDA Agent: handles long context efficiently
+    EDA_Agent = agents.Agent(
+        name="EDA_Agent",
+        instructions="""
+             You are an expert in converting English questions to BigQuery SQL query!
+             
+            The SQL database has the name transactions_data and has the following columns 
+            - transaction_id,product_id,product_description,sales_quantity,transaction_date,unit_price,customer_id,banner_name,sales_amount,store_id
+            
+            The SQL database has the name calendar_data and has the following columns 
+            - year,week,start_date,end_date
+            
+            The SQL database has the name products_data and has the following columns 
+            - product_id,product_description,brand_description,brand_id,category_id,category_name,subcategory_id,subcategory_name
+
+            The SQL database has the name segments_data and has the following columns 
+            - customer_id,parent_segment,segment
+            
+            The SQL database has the name stores_data and has the following columns 
+            - banner_name,store_id,division_name
+            
+            For example,
+            Example 1 - How many entries of records are present?, 
+            the SQL command will be something like this SELECT COUNT(*) FROM transactions_data ;
+            
+            Example 2 - Tell me all the transactions that of S/4 PINK FLOWER CANDLES IN BOWL?, 
+            the SQL command will be something like this SELECT * FROM transactions_data 
+            where product_description="S/4 PINK FLOWER CANDLES IN BOWL"; 
+
+            Example 3 - Give me a breakdown of average unit price and average quantity by product description
+            for the all hair product related transactions
+            that occured between weeks 12-18 in year 2024
+            The SQL command will be something like this:
+            SELECT
+                t.product_description,
+                AVG(t.unit_price) AS average_unit_price,
+                AVG(t.sales_quantity) AS average_sales_quantity
+            FROM
+                transactions_data AS t
+            JOIN
+                products_data AS p
+            ON
+                t.product_id = p.product_id
+            JOIN
+                calendar_data AS c
+            ON
+                t.transaction_date BETWEEN c.start_date AND c.end_date
+            WHERE
+                LOWER(p.product_description) LIKE "%hair%"
+                OR LOWER (p.category_name) LIKE "%hair"
+                OR LOWER (p.subcategory_name) LIKE "%hair"
+                AND c.year = 2024
+                AND c.week >= 12
+                AND c.week <= 18
+            GROUP BY
+                t.product_description;
+
+                
+            
+            ALWAYS FOLLOW THESE INSTRUCTIONS:
+            - The sql code should not have ``` in beginning or end and sql word in output.
+            - Make the query case insensitive.
+            - JOIN tables ONLY when necessary.
+            - If the tool returns no matches, return an empty STRING.
+            - Do NOT make up information.
+            
+             
+
+        """,
+        # instructions="""
+        #     You are an agent specialized in searching a knowledge base.
+        #     You will receive a single search query as input.
+        #     Use the 'search_knowledgebase' tool to perform a search.
+        #     Use the product_description column to find products that match the query.
+        #     Then return the respective product_ids and product_decription as a LIST.
+        #     Return all of the product_ids from product_description that match.
+        #     Also return the final count of product_ids as a seperate string in the end.
+        #     If the tool returns no matches, return an empty LIST.
+        #     Do NOT make up information. Do NOT return raw search results or long quotes.
+        # """,
+
+            # LIST of product_ids that has a product_description that match the query.
+
         tools=[
             agents.function_tool(client_manager.knowledgebase.search_knowledgebase),
         ],
@@ -196,7 +354,32 @@ if __name__ == "__main__":
                 "6) the societal impacts of modern AI"
             ],
             [
-                "Compare the box office performance of 'Oppenheimer' with the third Avatar movie"
+                "Get a list of ALL product codes which has candle in its description"
+            ],
+            [
+                """ Give me a breakdown of average unit price and average quantity by banner and product description 
+                    for the all Vaseline brand candle transactions 
+                    occuring between weeks 12-18 in year 2024 
+                    from Australia?
+                """
+            ],
+
+            [
+                """ Give me a breakdown of average unit price and average quantity by product description 
+                    for the all hair product related transactions 
+                    that occured between weeks 12-18 in year 2024 
+            
+                """
+            ],
+
+        
+           # [
+           #    On average, how many customers purchase hair products and if they do, how much do they spend each month 
+           # ],
+            
+            [
+                """ On average, how many customers purchase hair products and if they do, how much do they spend each month 
+                """
             ],
         ],
         title="2.2.3: Multi-Agent Orchestrator-worker for Retrieval-Augmented Generation with Multiple Tools",
@@ -206,3 +389,7 @@ if __name__ == "__main__":
         demo.launch(share=True)
     finally:
         asyncio.run(client_manager.close())
+
+
+
+        
