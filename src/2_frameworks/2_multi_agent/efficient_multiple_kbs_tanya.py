@@ -20,8 +20,13 @@ from src.utils.gradio import COMMON_GRADIO_CONFIG
 from src.utils.langfuse.shared_client import langfuse_client
 from src.utils.tools.gemini_grounding import (
     GeminiGroundingWithGoogleSearch,
-    ModelSettings,
+    ModelSettings
 )
+
+from src.utils.tools.sql_database import (
+    ReadOnlySqlDatabase
+    )
+
 
 import pandas as pd
 import sqlite3
@@ -135,10 +140,11 @@ if __name__ == "__main__":
         ),
     )
 
+    ## EDA Agent
 
     transactions_data = pd.read_csv("/home/coder/agent-bootcamp/src/utils/mock_transactions.csv")
     # 2. Establish a SQLite connection
-    database = "transactions_data"
+    database = "common_db"
     conn = sqlite3.connect(database)
     # 3. Save data into the SQLite database with the table name 'Users'
     transactions_data.to_sql(name='transactions_data', con=conn, if_exists='replace')
@@ -147,7 +153,7 @@ if __name__ == "__main__":
     calendar_data = pd.read_csv("/home/coder/agent-bootcamp/src/utils/mock_calendar.csv")
     # 2. Establish a SQLite connection
     database = "calendar_data"
-    conn = sqlite3.connect(database)
+    # conn = sqlite3.connect(database)
     # 3. Save data into the SQLite database with the table name 'Users'
     calendar_data.to_sql(name='calendar_data', con=conn, if_exists='replace')
 
@@ -155,7 +161,7 @@ if __name__ == "__main__":
     products_data = pd.read_csv("/home/coder/agent-bootcamp/src/utils/mock_products.csv")
     # 2. Establish a SQLite connection
     database = "products_data"
-    conn = sqlite3.connect(database)
+    # conn = sqlite3.connect(database)
     # 3. Save data into the SQLite database with the table name 'Users'
     products_data.to_sql(name='products_data', con=conn, if_exists='replace')
 
@@ -163,7 +169,7 @@ if __name__ == "__main__":
     segments_data = pd.read_csv("/home/coder/agent-bootcamp/src/utils/mock_segments.csv")
     # 2. Establish a SQLite connection
     database = "segments_data"
-    conn = sqlite3.connect(database)
+    # conn = sqlite3.connect(database)
     # 3. Save data into the SQLite database with the table name 'Users'
     segments_data.to_sql(name='segments_data', con=conn, if_exists='replace')
 
@@ -171,70 +177,29 @@ if __name__ == "__main__":
     stores_data = pd.read_csv("/home/coder/agent-bootcamp/src/utils/mock_stores.csv")
     # 2. Establish a SQLite connection
     database = "stores_data"
-    conn = sqlite3.connect(database)
+    # conn = sqlite3.connect(database)
     # 3. Save data into the SQLite database with the table name 'Users'
     stores_data.to_sql(name='stores_data', con=conn, if_exists='replace')
+
+    x = ReadOnlySqlDatabase(connection_uri="sqlite:///common_db")
 
 
     # EDA Agent: handles long context efficiently
     EDA_Agent = agents.Agent(
         name="EDA_Agent",
         instructions="""
-             You are an expert in converting English questions to BigQuery SQL query!
-             
-            The SQL database has the name transactions_data and has the following columns 
-            - transaction_id,product_id,product_description,sales_quantity,transaction_date,unit_price,customer_id,banner_name,sales_amount,store_id
-            
-            The SQL database has the name calendar_data and has the following columns 
-            - year,week,start_date,end_date
-            
-            The SQL database has the name products_data and has the following columns 
-            - product_id,product_description,brand_description,brand_id,category_id,category_name,subcategory_id,subcategory_name
 
-            The SQL database has the name segments_data and has the following columns 
-            - customer_id,parent_segment,segment
-            
-            The SQL database has the name stores_data and has the following columns 
-            - banner_name,store_id,division_name
-            
-            For example,
-            Example 1 - How many entries of records are present?, 
-            the SQL command will be something like this SELECT COUNT(*) FROM transactions_data ;
-            
-            Example 2 - Tell me all the transactions that of S/4 PINK FLOWER CANDLES IN BOWL?, 
-            the SQL command will be something like this SELECT * FROM transactions_data 
-            where product_description="S/4 PINK FLOWER CANDLES IN BOWL"; 
+        You are a EDA agent who has access to a sql database and you should query the database to answer the user's questions.
 
-            Example 3 - Give me a breakdown of average unit price and average quantity by product description
-            for the all hair product related transactions
-            that occured between weeks 12-18 in year 2024
-            The SQL command will be something like this:
-            SELECT
-                t.product_description,
-                AVG(t.unit_price) AS average_unit_price,
-                AVG(t.sales_quantity) AS average_sales_quantity
-            FROM
-                transactions_data AS t
-            JOIN
-                products_data AS p
-            ON
-                t.product_id = p.product_id
-            JOIN
-                calendar_data AS c
-            ON
-                t.transaction_date BETWEEN c.start_date AND c.end_date
-            WHERE
-                LOWER(p.product_description) LIKE "%hair%"
-                OR LOWER (p.category_name) LIKE "%hair"
-                OR LOWER (p.subcategory_name) LIKE "%hair"
-                AND c.year = 2024
-                AND c.week >= 12
-                AND c.week <= 18
-            GROUP BY
-                t.product_description;
+        The SQL database has the name common_db and has the following tables. 
+            - transactions_data
+            - calendar_data
+            - products_data
+            - segments_data
+            - stores_data
 
-                
-            
+        
+
             ALWAYS FOLLOW THESE INSTRUCTIONS:
             - The sql code should not have ``` in beginning or end and sql word in output.
             - Make the query case insensitive.
@@ -242,9 +207,70 @@ if __name__ == "__main__":
             - If the tool returns no matches, return an empty STRING.
             - Do NOT make up information.
             
-             
-
         """,
+        # instructions="""
+        #      You are an expert in converting English questions to BigQuery SQL query!
+             
+        #     The SQL database has the name transactions_data and has the following columns 
+        #     - transaction_id,product_id,product_description,sales_quantity,transaction_date,unit_price,customer_id,banner_name,sales_amount,store_id
+            
+        #     The SQL database has the name calendar_data and has the following columns 
+        #     - year,week,start_date,end_date
+            
+        #     The SQL database has the name products_data and has the following columns 
+        #     - product_id,product_description,brand_description,brand_id,category_id,category_name,subcategory_id,subcategory_name
+
+        #     The SQL database has the name segments_data and has the following columns 
+        #     - customer_id,parent_segment,segment
+            
+        #     The SQL database has the name stores_data and has the following columns 
+        #     - banner_name,store_id,division_name
+            
+        #     For example,
+        #     Example 1 - How many entries of records are present?, 
+        #     the SQL command will be something like this SELECT COUNT(*) FROM transactions_data ;
+            
+        #     Example 2 - Tell me all the transactions that of S/4 PINK FLOWER CANDLES IN BOWL?, 
+        #     the SQL command will be something like this SELECT * FROM transactions_data 
+        #     where product_description="S/4 PINK FLOWER CANDLES IN BOWL"; 
+
+        #     Example 3 - Give me a breakdown of average unit price and average quantity by product description
+        #     for the all hair product related transactions
+        #     that occured between weeks 12-18 in year 2024
+        #     The SQL command will be something like this:
+        #     SELECT
+        #         t.product_description,
+        #         AVG(t.unit_price) AS average_unit_price,
+        #         AVG(t.sales_quantity) AS average_sales_quantity
+        #     FROM
+        #         transactions_data AS t
+        #     JOIN
+        #         products_data AS p
+        #     ON
+        #         t.product_id = p.product_id
+        #     JOIN
+        #         calendar_data AS c
+        #     ON
+        #         t.transaction_date BETWEEN c.start_date AND c.end_date
+        #     WHERE
+        #         LOWER(p.product_description) LIKE "%hair%"
+        #         OR LOWER (p.category_name) LIKE "%hair"
+        #         OR LOWER (p.subcategory_name) LIKE "%hair"
+        #         AND c.year = 2024
+        #         AND c.week >= 12
+        #         AND c.week <= 18
+        #     GROUP BY
+        #         t.product_description;         
+            
+        #     ALWAYS FOLLOW THESE INSTRUCTIONS:
+        #     - The sql code should not have ``` in beginning or end and sql word in output.
+        #     - Make the query case insensitive.
+        #     - JOIN tables ONLY when necessary.
+        #     - If the tool returns no matches, return an empty STRING.
+        #     - Do NOT make up information.
+        # """,
+
+
         # instructions="""
         #     You are an agent specialized in searching a knowledge base.
         #     You will receive a single search query as input.
@@ -258,9 +284,10 @@ if __name__ == "__main__":
         # """,
 
             # LIST of product_ids that has a product_description that match the query.
-
+                        
         tools=[
-            agents.function_tool(client_manager.knowledgebase.search_knowledgebase),
+            agents.function_tool(x.get_schema_info),
+            agents.function_tool(x.execute),
         ],
         # a faster, smaller model for quick searches
         model=agents.OpenAIChatCompletionsModel(
@@ -268,16 +295,42 @@ if __name__ == "__main__":
         ),
     )
 
+            # You are a campaign planner agent and your goal is to find the best customers
+            # to target with the given campaign requirements/description by breaking down complex product descriptions, 
+            # using the provided tools and synthesizing the information into a list of customers_ids.
+
     # Main Agent: more expensive and slower, but better at complex planning
     main_agent = agents.Agent(
         name="MainAgent",
         instructions="""
+            You are a retail marketing targeting orchestration agent.
+
+            Your job is to:
+            1. Interpret natural language targeting requests.
+            2. Translate them into a structured targeting specification.
+            3. Select and call ONLY provided tools.
+            4. Produce a reproducible audience dataset containing fields: 
+                - customer_id.
+            5. Pass the dataset to the EDA agent when analysis is requested.
+
+            You have access to the following tools:
+            1. 'search_knowledgebase' - use this tool to search for information in a
+                knowledge base. The knowledge base reflects the product descriptions.
+            2. 'EDA_Agent ' - use this tool for current events,
+                news, fact-checking or when the information in the knowledge base is
+                not sufficient to answer the question.
+        
+            You must NEVER:
+            - invent data
+            - query undefined tables
+            - assume business rules
+
             You are a deep research agent and your goal is to conduct in-depth, multi-turn
             research by breaking down complex queries, using the provided tools, and
             synthesizing the information into a comprehensive report.
 
             You have access to the following tools:
-            1. 'search_knowledgebase' - use this tool to search for information in a
+            1. 'KnowledgeBaseAgent' - use this tool to search for information in a
                 knowledge base. The knowledge base reflects a subset of Wikipedia as
                 of May 2025.
             2. 'get_web_search_grounded_response' - use this tool for current events,
@@ -329,10 +382,20 @@ if __name__ == "__main__":
                     "the summary"
                 ),
             ),
-            agents.function_tool(
-                gemini_grounding_tool.get_web_search_grounded_response,
-                name_override="search_web",
+
+            EDA_Agent.as_tool(
+                tool_name="EDA_Agent",
+                tool_description=(
+                    "Search the knowledge base for a query and return a concise summary "
+                    "of the key findings, along with the sources used to generate "
+                    "the summary"
+                ),
             ),
+            # agents.function_tool(
+            #     gemini_grounding_tool.get_web_search_grounded_response,
+            #     name_override="search_web",
+            # ),
+
         ],
         # a larger, more capable model for planning and reasoning over summaries
         model=agents.OpenAIChatCompletionsModel(
