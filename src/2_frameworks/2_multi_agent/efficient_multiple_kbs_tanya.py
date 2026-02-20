@@ -58,7 +58,7 @@ async def _main(
     ):
         # Run the agent in streaming mode to get and display intermediate outputs
         result_stream = agents.Runner.run_streamed(
-            main_agent,
+            eda_agent,
             input=query,
             session=session,
             max_turns=30,  # Increase max turns to support more complex queries
